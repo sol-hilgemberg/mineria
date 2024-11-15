@@ -1,89 +1,116 @@
-import dash
-from dash import dcc, html
-import dash_bootstrap_components as dbc
-import plotly.express as px
 import pandas as pd
 import numpy as np
+import streamlit as st
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import classification_report, confusion_matrix
+from imblearn.over_sampling import SMOTE
+import plotly.express as px
 
-# Generar un conjunto de datos simulado
+# Simulación de datos
 np.random.seed(42)
 data = {
-    'Mes': ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 
-            'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'],
-    'Producción (toneladas)': np.random.randint(1000, 5000, 12),
-    'Temperatura (°C)': np.random.uniform(60, 90, 12),
-    'Vibración (m/s²)': np.random.uniform(0.2, 1.0, 12)
+    'fecha': pd.date_range(start='2023-01-01', periods=1000, freq='D'),
+    'horas_maquina': np.random.normal(100, 20, 1000),
+    'temperatura': np.random.normal(70, 5, 1000),
+    'vibracion': np.random.normal(0.5, 0.1, 1000),
+    'produccion': np.random.normal(1500, 200, 1000),
+    'fallo': np.random.choice([0, 1], size=1000, p=[0.85, 0.15])
 }
 df = pd.DataFrame(data)
 
-# Inicializar la aplicación Dash con Bootstrap
-app = dash.Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
+# Eliminar la columna 'fecha' para el análisis
+df = df.drop(columns=['fecha'])
 
-# Layout de la aplicación
-app.layout = dbc.Container([
-    dbc.Row(dbc.Col(html.H1("Interactividad en Dash: Análisis de Producción Minera"), width=12)),
+# Página de configuración
+st.title('Dashboard de Predicción de Fallos en Maquinaria')
 
-    dbc.Row([
-        dbc.Col(
-            dcc.Dropdown(
-                id='dropdown',
-                options=[
-                    {'label': 'Producción (toneladas)', 'value': 'Producción (toneladas)'},
-                    {'label': 'Temperatura (°C)', 'value': 'Temperatura (°C)'},
-                    {'label': 'Vibración (m/s²)', 'value': 'Vibración (m/s²)'}
-                ],
-                value='Producción (toneladas)',  # Valor por defecto
-                style={'width': '100%'}
-            ), 
-            width=6
-        ),
-        dbc.Col(
-            dcc.Slider(
-                id='slider-range',
-                min=df['Producción (toneladas)'].min(),
-                max=df['Producción (toneladas)'].max(),
-                step=100,
-                value=df['Producción (toneladas)'].mean(),
-                marks={i: str(i) for i in range(int(df['Producción (toneladas)'].min()), 
-                                               int(df['Producción (toneladas)'].max()) + 500, 500)}
-            ), 
-            width=6
-        )
-    ]),
+# Verificar valores nulos
+st.subheader("Revisión de datos nulos")
+st.write(df.isnull().sum())
 
-    dbc.Row([
-        dbc.Col(dcc.Graph(id='graph'), width=12)
-    ]),
+# Visualización de la distribución de 'horas_maquina' usando Plotly para interactividad
+st.subheader('Distribución de Horas de Maquinaria')
+fig1 = px.histogram(df, x='horas_maquina', nbins=30, title='Distribución de Horas de Maquinaria', marginal='box')
+st.plotly_chart(fig1)
 
-    dbc.Row([
-        dbc.Col(html.Div(id='hover-data', style={'marginTop': 20}), width=12),
-        dbc.Col(html.Button("Descargar CSV", id="btn_csv"), width=2),
-        dcc.Download(id="download-dataframe-csv")
-    ])
-], fluid=True)
+# Visualización de la matriz de correlación con Plotly
+st.subheader('Matriz de Correlación')
+fig2 = px.imshow(df.corr(), text_auto=True, title="Matriz de Correlación")
+st.plotly_chart(fig2)
 
-# Callback para actualizar el gráfico y mostrar texto con el valor del slider
-@app.callback(
-    [dash.dependencies.Output('graph', 'figure'),
-     dash.dependencies.Output('hover-data', 'children')],
-    [dash.dependencies.Input('dropdown', 'value'),
-     dash.dependencies.Input('slider-range', 'value')]
-)
-def update_graph_and_text(selected_column, selected_value):
-    filtered_df = df[df['Producción (toneladas)'] <= selected_value]
-    fig = px.scatter(filtered_df, x='Mes', y=selected_column, labels={'x': 'Mes', 'y': selected_column})
-    text_output = f'Mostrando datos con producción menor o igual a {selected_value} toneladas'
-    return fig, text_output
+# Preparación del modelo
+X = df[['horas_maquina', 'temperatura', 'vibracion', 'produccion']]
+y = df['fallo']
 
-# Callback para descargar CSV
-@app.callback(
-    dash.dependencies.Output("download-dataframe-csv", "data"),
-    [dash.dependencies.Input("btn_csv", "n_clicks")],
-    prevent_initial_call=True
-)
-def download_csv(n_clicks):
-    return dcc.send_data_frame(df.to_csv, "datos_produccion.csv")
+# Dividir en conjuntos de entrenamiento y prueba
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-# Ejecutar la aplicación
-if __name__ == '__main__':
-    app.run_server(debug=True)
+# Crear y entrenar el modelo de Random Forest
+model = RandomForestClassifier(n_estimators=100, random_state=42)
+model.fit(X_train, y_train)
+
+# Realizar predicciones
+y_pred = model.predict(X_test)
+
+# Evaluación del modelo
+st.subheader('Reporte de Clasificación')
+st.text(classification_report(y_test, y_pred))
+
+# Mostrar la matriz de confusión
+st.subheader('Matriz de Confusión')
+fig3, ax3 = plt.subplots(figsize=(6, 6))
+sns.heatmap(confusion_matrix(y_test, y_pred), annot=True, fmt='d', cmap='Blues', cbar=False, ax=ax3)
+st.pyplot(fig3)
+
+# Mostrar la importancia de las características
+st.subheader('Importancia de las Características')
+importances = model.feature_importances_
+feature_names = X.columns
+fig4, ax4 = plt.subplots(figsize=(10, 6))
+sns.barplot(x=importances, y=feature_names, ax=ax4)
+st.pyplot(fig4)
+
+# Opcional: Balanceo de clases con SMOTE
+use_smote = st.checkbox("Aplicar SMOTE para Sobremuestreo", value=True)
+
+if use_smote:
+    st.subheader("Aplicación de SMOTE para Sobremuestreo")
+    smote = SMOTE(random_state=42)
+    X_resampled, y_resampled = smote.fit_resample(X_train, y_train)
+    model.fit(X_resampled, y_resampled)
+
+    # Realizar predicciones y evaluar el modelo con SMOTE
+    y_pred_smote = model.predict(X_test)
+    st.subheader('Reporte de Clasificación con SMOTE')
+    st.text(classification_report(y_test, y_pred_smote))
+
+    # Mostrar la matriz de confusión con SMOTE
+    st.subheader('Matriz de Confusión con SMOTE')
+    fig5, ax5 = plt.subplots(figsize=(6, 6))
+    sns.heatmap(confusion_matrix(y_test, y_pred_smote), annot=True, fmt='d', cmap='Blues', cbar=False, ax=ax5)
+    st.pyplot(fig5)
+
+# Interactividad para hacer predicciones nuevas
+st.subheader('Predicción de Fallos en Nueva Entrada')
+horas_maquina = st.slider('Horas de Maquinaria', min_value=0, max_value=500, value=100)
+temperatura = st.slider('Temperatura', min_value=50, max_value=100, value=70)
+vibracion = st.slider('Vibración', min_value=0.0, max_value=1.0, value=0.5)
+produccion = st.slider('Producción', min_value=1000, max_value=3000, value=1500)
+
+# Crear un DataFrame para la predicción
+new_data = pd.DataFrame({
+    'horas_maquina': [horas_maquina],
+    'temperatura': [temperatura],
+    'vibracion': [vibracion],
+    'produccion': [produccion]
+})
+
+# Realizar la predicción
+prediction = model.predict(new_data)
+if prediction == 1:
+    st.write("¡Alerta! Se predice un fallo en la maquinaria.")
+else:
+    st.write("La maquinaria está funcionando normalmente.")
