@@ -8,6 +8,8 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import classification_report, confusion_matrix
 from imblearn.over_sampling import SMOTE
 import plotly.express as px
+from fpdf import FPDF
+import base64
 
 # Simulación de datos
 np.random.seed(42)
@@ -27,10 +29,6 @@ df = df.drop(columns=['fecha'])
 # Página de configuración
 st.title('Dashboard de Predicción de Fallos en Maquinaria')
 
-# Verificar valores nulos
-st.subheader("Revisión de datos nulos")
-st.write(df.isnull().sum())
-
 # Visualización de la distribución de 'horas_maquina' usando Plotly para interactividad
 st.subheader('Distribución de Horas de Maquinaria')
 fig1 = px.histogram(df, x='horas_maquina', nbins=30, title='Distribución de Horas de Maquinaria', marginal='box')
@@ -48,15 +46,20 @@ y = df['fallo']
 # Dividir en conjuntos de entrenamiento y prueba
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
+# Balanceo con SMOTE
+smote = SMOTE(random_state=42)
+X_resampled, y_resampled = smote.fit_resample(X_train, y_train)
+
 # Crear y entrenar el modelo de Random Forest
 model = RandomForestClassifier(n_estimators=100, random_state=42)
-model.fit(X_train, y_train)
+model.fit(X_resampled, y_resampled)
 
 # Realizar predicciones
 y_pred = model.predict(X_test)
 
 # Evaluación del modelo
 st.subheader('Reporte de Clasificación')
+report = classification_report(y_test, y_pred, output_dict=True)
 st.text(classification_report(y_test, y_pred))
 
 # Mostrar la matriz de confusión
@@ -64,34 +67,6 @@ st.subheader('Matriz de Confusión')
 fig3, ax3 = plt.subplots(figsize=(6, 6))
 sns.heatmap(confusion_matrix(y_test, y_pred), annot=True, fmt='d', cmap='Blues', cbar=False, ax=ax3)
 st.pyplot(fig3)
-
-# Mostrar la importancia de las características
-st.subheader('Importancia de las Características')
-importances = model.feature_importances_
-feature_names = X.columns
-fig4, ax4 = plt.subplots(figsize=(10, 6))
-sns.barplot(x=importances, y=feature_names, ax=ax4)
-st.pyplot(fig4)
-
-# Opcional: Balanceo de clases con SMOTE
-use_smote = st.checkbox("Aplicar SMOTE para Sobremuestreo", value=True)
-
-if use_smote:
-    st.subheader("Aplicación de SMOTE para Sobremuestreo")
-    smote = SMOTE(random_state=42)
-    X_resampled, y_resampled = smote.fit_resample(X_train, y_train)
-    model.fit(X_resampled, y_resampled)
-
-    # Realizar predicciones y evaluar el modelo con SMOTE
-    y_pred_smote = model.predict(X_test)
-    st.subheader('Reporte de Clasificación con SMOTE')
-    st.text(classification_report(y_test, y_pred_smote))
-
-    # Mostrar la matriz de confusión con SMOTE
-    st.subheader('Matriz de Confusión con SMOTE')
-    fig5, ax5 = plt.subplots(figsize=(6, 6))
-    sns.heatmap(confusion_matrix(y_test, y_pred_smote), annot=True, fmt='d', cmap='Blues', cbar=False, ax=ax5)
-    st.pyplot(fig5)
 
 # Interactividad para hacer predicciones nuevas
 st.subheader('Predicción de Fallos en Nueva Entrada')
@@ -110,7 +85,36 @@ new_data = pd.DataFrame({
 
 # Realizar la predicción
 prediction = model.predict(new_data)
+probabilidad = model.predict_proba(new_data)[0][1]
+
+# Mostrar resultado
 if prediction == 1:
-    st.write("¡Alerta! Se predice un fallo en la maquinaria.")
+    st.write(f"**¡Alerta! Se predice un fallo en la maquinaria con una probabilidad de {probabilidad:.2f}.**")
 else:
-    st.write("La maquinaria está funcionando normalmente.")
+    st.write(f"La maquinaria está funcionando normalmente. Probabilidad de fallo: {probabilidad:.2f}")
+
+# Generar informe PDF
+def generate_pdf():
+    pdf = FPDF()
+    pdf.add_page()
+    pdf.set_font("Arial", size=12)
+    pdf.cell(200, 10, txt="Informe de Predicción de Fallos en Maquinaria", ln=True, align="C")
+    pdf.ln(10)
+    pdf.cell(200, 10, txt=f"Horas de Maquinaria: {horas_maquina}", ln=True)
+    pdf.cell(200, 10, txt=f"Temperatura: {temperatura}", ln=True)
+    pdf.cell(200, 10, txt=f"Vibración: {vibracion}", ln=True)
+    pdf.cell(200, 10, txt=f"Producción: {produccion}", ln=True)
+    pdf.cell(200, 10, txt=f"Predicción: {'Fallo' if prediction == 1 else 'Normal'}", ln=True)
+    pdf.cell(200, 10, txt=f"Probabilidad de fallo: {probabilidad:.2f}", ln=True)
+    
+    # Guardar archivo temporalmente
+    pdf_file = "informe_prediccion.pdf"
+    pdf.output(pdf_file)
+    return pdf_file
+
+if st.button("Descargar Informe en PDF"):
+    pdf_file = generate_pdf()
+    with open(pdf_file, "rb") as f:
+        b64 = base64.b64encode(f.read()).decode()
+        href = f'<a href="data:application/octet-stream;base64,{b64}" download="informe_prediccion.pdf">Descargar Informe PDF</a>'
+        st.markdown(href, unsafe_allow_html=True)
