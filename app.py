@@ -7,7 +7,6 @@ from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import classification_report, confusion_matrix
 from imblearn.over_sampling import SMOTE
-import plotly.express as px
 from fpdf import FPDF
 import base64
 
@@ -31,13 +30,17 @@ st.title('Dashboard de Predicción de Fallos en Maquinaria')
 
 # Visualización de la distribución de 'horas_maquina' usando Plotly para interactividad
 st.subheader('Distribución de Horas de Maquinaria')
-fig1 = px.histogram(df, x='horas_maquina', nbins=30, title='Distribución de Horas de Maquinaria', marginal='box')
-st.plotly_chart(fig1)
+fig1 = plt.figure(figsize=(10, 6))
+sns.histplot(df['horas_maquina'], kde=True, color='blue', bins=30)
+plt.title('Distribución de Horas de Maquinaria')
+st.pyplot(fig1)
 
-# Visualización de la matriz de correlación con Plotly
+# Visualización de la matriz de correlación con Matplotlib
 st.subheader('Matriz de Correlación')
-fig2 = px.imshow(df.corr(), text_auto=True, title="Matriz de Correlación")
-st.plotly_chart(fig2)
+fig2, ax2 = plt.subplots(figsize=(10, 6))
+sns.heatmap(df.corr(), annot=True, cmap='coolwarm', fmt='.2f', ax=ax2)
+plt.title('Matriz de Correlación')
+st.pyplot(fig2)
 
 # Preparación del modelo
 X = df[['horas_maquina', 'temperatura', 'vibracion', 'produccion']]
@@ -93,28 +96,42 @@ if prediction == 1:
 else:
     st.write(f"La maquinaria está funcionando normalmente. Probabilidad de fallo: {probabilidad:.2f}")
 
-# Generar informe PDF
-def generate_pdf():
+# Función para generar el informe PDF
+def generate_pdf_with_charts():
     pdf = FPDF()
     pdf.add_page()
     pdf.set_font("Arial", size=12)
+    
+    # Título
     pdf.cell(200, 10, txt="Informe de Predicción de Fallos en Maquinaria", ln=True, align="C")
     pdf.ln(10)
+    
+    # Texto descriptivo
     pdf.cell(200, 10, txt=f"Horas de Maquinaria: {horas_maquina}", ln=True)
     pdf.cell(200, 10, txt=f"Temperatura: {temperatura}", ln=True)
     pdf.cell(200, 10, txt=f"Vibración: {vibracion}", ln=True)
     pdf.cell(200, 10, txt=f"Producción: {produccion}", ln=True)
     pdf.cell(200, 10, txt=f"Predicción: {'Fallo' if prediction == 1 else 'Normal'}", ln=True)
     pdf.cell(200, 10, txt=f"Probabilidad de fallo: {probabilidad:.2f}", ln=True)
+    pdf.ln(10)
     
-    # Guardar archivo temporalmente
-    pdf_file = "informe_prediccion.pdf"
+    # Guardar el gráfico de la matriz de confusión como imagen
+    fig3.savefig("matriz_confusion.png")
+    plt.close(fig3)  # Cerrar la figura para evitar que se muestre en Streamlit
+
+    # Agregar el gráfico al PDF
+    pdf.cell(200, 10, txt="Matriz de Confusión:", ln=True)
+    pdf.image("matriz_confusion.png", x=10, y=None, w=190)  # Ajusta las coordenadas y el ancho según sea necesario
+
+    # Guardar el PDF
+    pdf_file = "informe_prediccion_con_graficos.pdf"
     pdf.output(pdf_file)
     return pdf_file
 
-if st.button("Descargar Informe en PDF"):
-    pdf_file = generate_pdf()
+# Descargar el informe en PDF con gráficos
+if st.button("Descargar Informe con Gráficos"):
+    pdf_file = generate_pdf_with_charts()
     with open(pdf_file, "rb") as f:
         b64 = base64.b64encode(f.read()).decode()
-        href = f'<a href="data:application/octet-stream;base64,{b64}" download="informe_prediccion.pdf">Descargar Informe PDF</a>'
+        href = f'<a href="data:application/octet-stream;base64,{b64}" download="informe_prediccion_con_graficos.pdf">Descargar Informe PDF</a>'
         st.markdown(href, unsafe_allow_html=True)
